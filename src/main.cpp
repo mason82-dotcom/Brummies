@@ -20,7 +20,10 @@
 #include <Adafruit_NeoPixel.h>
 #include "FT6336U.h"
 #include "driver/i2s.h"
+#include "FS.h"
+#include "SD_MMC.h"
 #include <math.h>
+#include <string.h>
 
 // ---------------------------------------------------------------------
 //  Pins / Hardware-Konfiguration
@@ -37,6 +40,11 @@
 #define I2S_DOUT   41
 #define SAMPLE_RATE 22050
 
+// SD-Karte (SD_MMC, 1-Bit) am Shield
+#define SD_MMC_CMD 38
+#define SD_MMC_CLK 39
+#define SD_MMC_D0  40
+
 // Falls Antippen an der falschen Stelle reagiert (gespiegelt),
 // hier auf 1 setzen und neu flashen:
 #define TOUCH_INVERT_X 0
@@ -51,6 +59,8 @@ TFT_eSPI      tft = TFT_eSPI();
 TFT_eSprite   spr = TFT_eSprite(&tft);           // Sprite fuer ein Fahrzeug
 FT6336U       ctp(TOUCH_SDA, TOUCH_SCL, TOUCH_RST, TOUCH_INT);
 Adafruit_NeoPixel led(1, WS2812_PIN, NEO_GRB + NEO_KHZ800);
+
+bool sdReady = false;      // wird in setup() gesetzt
 
 // ---------------------------------------------------------------------
 //  Bildschirm-Geometrie (Hochformat 240 x 320)
@@ -84,6 +94,12 @@ enum VType {
 };
 
 QueueHandle_t soundQueue;
+
+// Dateinamen der WAVs auf der SD-Karte (Reihenfolge = VType)
+static const char *wavName[V_COUNT] = {
+  "/feuerwehr.wav", "/polizei.wav", "/krankenwagen.wav", "/traktor.wav",
+  "/bagger.wav",    "/muellwagen.wav", "/auto.wav",       "/zug.wav"
+};
 
 struct Vehicle {
   VType    type;
@@ -246,11 +262,88 @@ static void playSound(int id) {
   i2s_zero_dma_buffer(I2S_NUM_0);
 }
 
+// Spielt eine WAV-Datei (PCM, 16-bit, mono oder stereo) von der SD-Karte
+// ueber den bestehenden I2S-Ausgang. Gibt false zurueck, wenn die Datei
+// fehlt oder das Format nicht passt -> dann wird der synthetische Ton genommen.
+static bool playWavFile(const char *path) {
+  if (!sdReady) return false;
+  File f = SD_MMC.open(path);
+  if (!f) return false;
+
+  char riff[4], wave[4];
+  uint32_t rsize;
+  if (f.read((uint8_t *)riff, 4) != 4) { f.close(); return false; }
+  f.read((uint8_t *)&rsize, 4);
+  if (f.read((uint8_t *)wave, 4) != 4) { f.close(); return false; }
+  if (memcmp(riff, "RIFF", 4) != 0 || memcmp(wave, "WAVE", 4) != 0) { f.close(); return false; }
+
+  uint16_t audioFormat = 0, numCh = 0, bits = 0;
+  uint32_t sampleRate = 0, dataSize = 0;
+  bool haveFmt = false, haveData = false;
+
+  while (f.available() >= 8) {
+    char cid[4]; uint32_t csize;
+    f.read((uint8_t *)cid, 4);
+    f.read((uint8_t *)&csize, 4);
+    if (memcmp(cid, "fmt ", 4) == 0) {
+      uint8_t fmt[16];
+      if (f.read(fmt, 16) != 16) { f.close(); return false; }
+      audioFormat = fmt[0] | (fmt[1] << 8);
+      numCh       = fmt[2] | (fmt[3] << 8);
+      sampleRate  = fmt[4] | (fmt[5] << 8) | (fmt[6] << 16) | ((uint32_t)fmt[7] << 24);
+      bits        = fmt[14] | (fmt[15] << 8);
+      haveFmt = true;
+      if (csize > 16) f.seek(f.position() + (csize - 16));
+    } else if (memcmp(cid, "data", 4) == 0) {
+      dataSize = csize; haveData = true; break;      // ab hier folgen die Audiodaten
+    } else {
+      f.seek(f.position() + csize + (csize & 1));     // unbekannten Chunk ueberspringen
+    }
+  }
+
+  if (!haveFmt || !haveData || audioFormat != 1 || bits != 16 ||
+      (numCh != 1 && numCh != 2)) {
+    f.close(); return false;                          // -> Fallback auf synth
+  }
+
+  // I2S-Takt an die Datei anpassen (Ausgabe bleibt stereo)
+  i2s_set_clk(I2S_NUM_0, sampleRate, I2S_BITS_PER_SAMPLE_16BIT, I2S_CHANNEL_STEREO);
+
+  uint8_t buf[512];
+  int16_t out[512];                                   // bis 256 Stereo-Frames
+  uint32_t remaining = dataSize;
+  while (remaining > 0 && f.available()) {
+    uint32_t want = remaining > sizeof(buf) ? sizeof(buf) : remaining;
+    int nread = f.read(buf, want);
+    if (nread <= 0) break;
+    remaining -= nread;
+    int16_t *in = (int16_t *)buf;
+    int outCount;
+    if (numCh == 1) {                                 // mono -> auf L+R duplizieren
+      int frames = nread / 2;
+      for (int i = 0; i < frames; i++) { out[2 * i] = in[i]; out[2 * i + 1] = in[i]; }
+      outCount = frames * 2;
+    } else {                                          // stereo -> direkt
+      outCount = nread / 2;
+      memcpy(out, in, outCount * sizeof(int16_t));
+    }
+    size_t written;
+    i2s_write(I2S_NUM_0, out, outCount * sizeof(int16_t), &written, portMAX_DELAY);
+  }
+
+  i2s_zero_dma_buffer(I2S_NUM_0);
+  i2s_set_clk(I2S_NUM_0, SAMPLE_RATE, I2S_BITS_PER_SAMPLE_16BIT, I2S_CHANNEL_STEREO); // zurueck
+  f.close();
+  return true;
+}
+
 static void audioTask(void *param) {
   int id;
   for (;;) {
     if (xQueueReceive(soundQueue, &id, portMAX_DELAY) == pdTRUE) {
-      playSound(id);
+      // Erst versuchen, die passende WAV von SD zu spielen; sonst synth. Ton
+      if (!(id >= 0 && id < V_COUNT && playWavFile(wavName[id])))
+        playSound(id);
     }
   }
 }
@@ -511,8 +604,15 @@ void setup() {
   led.show();
 
   i2sSetup();
+
+  // SD-Karte (optional): wenn vorhanden, werden WAVs abgespielt, sonst Toene
+  SD_MMC.setPins(SD_MMC_CLK, SD_MMC_CMD, SD_MMC_D0);
+  sdReady = SD_MMC.begin("/sdcard", true, false);     // 1-Bit, nicht formatieren
+  Serial.println(sdReady ? "SD-Karte erkannt: spiele WAVs (falls vorhanden)."
+                         : "Keine SD-Karte: benutze eingebaute Toene.");
+
   soundQueue = xQueueCreate(4, sizeof(int));
-  xTaskCreatePinnedToCore(audioTask, "audio", 4096, NULL, 1, NULL, 0);
+  xTaskCreatePinnedToCore(audioTask, "audio", 6144, NULL, 1, NULL, 0);
 
   randomSeed(esp_random());
 

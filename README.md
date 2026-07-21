@@ -70,11 +70,27 @@ Alles Wichtige steht oben in `src/main.cpp`:
 
 ---
 
-## 🔊 Echte Geräusche als WAV (optional)
+## 🔊 Echte Geräusche als WAV (SD‑Karte)
 
-Aktuell werden die Töne **live im Chip erzeugt** (kein SD‑Karten‑ oder
-Datei‑Kram nötig). Wer echte Aufnahme‑Geräusche möchte, findet hier
-**frei nutzbare** Quellen (CC0 / lizenzfrei, kommerziell nutzbar):
+Das Spiel spielt **automatisch** echte Sound‑Dateien von einer microSD‑Karte,
+wenn welche vorhanden sind — **sonst** fallen die Geräusche auf die eingebauten
+synthetischen Töne zurück. Es läuft also **mit und ohne Karte**.
+
+**So geht's:**
+
+1. microSD‑Karte mit **FAT32** formatieren.
+2. Acht WAV‑Dateien **ins Hauptverzeichnis** (Root) der Karte legen — exakt so
+   benannt:
+   `feuerwehr.wav  polizei.wav  krankenwagen.wav  traktor.wav
+   bagger.wav  muellwagen.wav  auto.wav  zug.wav`
+   (Fehlt eine Datei, nimmt nur dieses eine Fahrzeug den synthetischen Ton.)
+3. Format der WAVs: **PCM, 16‑bit, mono oder stereo** (Sample‑Rate egal, wird
+   automatisch erkannt). Andere Formate (z. B. 24‑bit, MP3) werden übersprungen
+   → dann greift der Fallback.
+4. Karte in den SD‑Slot des Shields stecken, einschalten. Der serielle Monitor
+   zeigt `SD-Karte erkannt` bzw. `Keine SD-Karte`.
+
+Dateien findest du hier — **frei nutzbar** (CC0 / lizenzfrei, kommerziell ok):
 
 | Quelle | Lizenz | Hinweis |
 |---|---|---|
@@ -97,15 +113,9 @@ ins passende Format gebracht (mono, 16‑bit, 22050 Hz) — mit
 ffmpeg -i download.mp3 -ac 1 -ar 22050 -sample_fmt s16 feuerwehr.wav
 ```
 
-Empfohlene Dateinamen für die 8 Fahrzeuge:
-`feuerwehr.wav  polizei.wav  krankenwagen.wav  traktor.wav
-bagger.wav  muellwagen.wav  auto.wav  zug.wav`
-
-> **Abspielen von SD:** Das Kit hat einen SD‑Slot und die
-> `ESP32-audioI2S`‑Bibliothek. Den Code, der diese WAV/MP3‑Dateien von der
-> SD‑Karte statt der synthetischen Töne abspielt, kann ich als nächsten
-> Schritt einbauen — sag einfach Bescheid. (Dann brauchst du eine microSD‑Karte
-> im Slot des Shields.)
+Danach die Datei passend benennen (`feuerwehr.wav`, `polizei.wav`, …, siehe
+Liste oben) und ins Root der SD‑Karte kopieren. Fertig — beim nächsten Start
+spielt das Spiel automatisch die echten Geräusche.
 
 ---
 
