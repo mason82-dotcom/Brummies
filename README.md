@@ -3,10 +3,16 @@
 Ein einfaches, buntes Ursache‑und‑Wirkung‑Spiel für das
 **Freenove ESP32‑S3‑WROOM Board** mit **2.8″ Touch‑Screen** und Lautsprecher.
 
-Feuerwehr 🚒, Polizei 🚓, Traktor 🚜 und Bagger 🚧 fahren langsam über den
-Bildschirm. Tippt das Kind ein Fahrzeug an, macht es sein typisches Geräusch
-(Martinshorn, Sirene, Motor‑Tuckern, Rückfahr‑Piepen), hüpft kurz und die
-Onboard‑RGB‑LED blinkt in der Fahrzeugfarbe.
+**Acht** verschiedene Fahrzeuge fahren langsam über den Bildschirm — in **beide
+Richtungen**. Verlässt eines den Bildschirm, kommt ein neues, zufälliges
+Fahrzeug nach:
+
+🚒 Feuerwehr · 🚓 Polizei · 🚑 Krankenwagen · 🚜 Traktor · 🚧 Bagger ·
+🚛 Müllwagen · 🚗 Auto · 🚂 Zug
+
+Tippt das Kind ein Fahrzeug an, macht es sein typisches Geräusch (Martinshorn,
+Sirene, Yelp, Motor‑Tuckern, Rückfahr‑Piepen, Hupe, Zug‑Horn …), hüpft kurz und
+die Onboard‑RGB‑LED blinkt in der Fahrzeugfarbe.
 
 ---
 
@@ -64,6 +70,45 @@ Alles Wichtige steht oben in `src/main.cpp`:
 
 ---
 
+## 🔊 Echte Geräusche als WAV (optional)
+
+Aktuell werden die Töne **live im Chip erzeugt** (kein SD‑Karten‑ oder
+Datei‑Kram nötig). Wer echte Aufnahme‑Geräusche möchte, findet hier
+**frei nutzbare** Quellen (CC0 / lizenzfrei, kommerziell nutzbar):
+
+| Quelle | Lizenz | Hinweis |
+|---|---|---|
+| [Pixabay – Sound Effects](https://pixabay.com/sound-effects/) | Pixabay‑Lizenz, keine Namensnennung | Sirenen top: [firetruck](https://pixabay.com/sound-effects/search/firetruck/), [police‑siren](https://pixabay.com/sound-effects/search/police-siren/), [tractor](https://pixabay.com/sound-effects/search/tractor/), [excavator](https://pixabay.com/sound-effects/search/excavator/) |
+| [BigSoundBank](https://bigsoundbank.com/categories.html) | **CC0** (Public Domain) | Direkter WAV‑Download ohne Login, z. B. [Bagger‑Motor](https://bigsoundbank.com/sound-2147-excavator-engine.html) |
+| [Freesound](https://freesound.org/) | gemischt – **auf CC0 filtern!** | Riesige Auswahl, Konto nötig |
+| [Mixkit](https://mixkit.co/free-sound-effects/) | Mixkit‑Lizenz, kostenlos | Fahrzeug‑/Motor‑Sounds |
+
+**Suchbegriffe:** `fire truck siren`, `police siren`, `ambulance siren`,
+`tractor engine`, `excavator` / `digger`, `garbage truck reverse beep`,
+`car horn`, `train horn`.
+
+### Dateien fürs ESP32 vorbereiten
+
+Kurze Clips (1–3 s) reichen und sind für Kleinkinder am besten. So werden sie
+ins passende Format gebracht (mono, 16‑bit, 22050 Hz) — mit
+[ffmpeg](https://ffmpeg.org/):
+
+```bash
+ffmpeg -i download.mp3 -ac 1 -ar 22050 -sample_fmt s16 feuerwehr.wav
+```
+
+Empfohlene Dateinamen für die 8 Fahrzeuge:
+`feuerwehr.wav  polizei.wav  krankenwagen.wav  traktor.wav
+bagger.wav  muellwagen.wav  auto.wav  zug.wav`
+
+> **Abspielen von SD:** Das Kit hat einen SD‑Slot und die
+> `ESP32-audioI2S`‑Bibliothek. Den Code, der diese WAV/MP3‑Dateien von der
+> SD‑Karte statt der synthetischen Töne abspielt, kann ich als nächsten
+> Schritt einbauen — sag einfach Bescheid. (Dann brauchst du eine microSD‑Karte
+> im Slot des Shields.)
+
+---
+
 ## 🛠️ Fehlerbehebung
 
 | Problem | Lösung |
@@ -90,9 +135,9 @@ TFT_eSPI und Adafruit NeoPixel werden von PlatformIO automatisch geladen.
 
 ## 💡 Ideen für später
 
-- Echte Aufnahme‑Geräusche (WAV/MP3) von einer SD‑Karte statt synthetischer Töne
-  (das Kit hat SD‑Slot + `ESP32-audioI2S`‑Bibliothek).
+- Echte Aufnahme‑Geräusche (WAV/MP3) von SD‑Karte (siehe Abschnitt „Echte
+  Geräusche als WAV" oben — Einbau auf Zuruf).
 - Tiere statt Fahrzeuge, oder eine Zähl‑Version (jedes Antippen zählt hoch).
-- Fahrzeuge in beide Richtungen fahren lassen.
+- Namen der Fahrzeuge kurz einblenden, wenn man sie antippt.
 
 Viel Spaß! 🎉
