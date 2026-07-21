@@ -75,7 +75,7 @@ static const int LANE_H = (SCR_H - SKY_H) / N_LANES;   // 67
 static const int VW = 94;   // Breite
 static const int VH = 44;   // Hoehe
 static const int MARG = 6;  // horizontaler Rand im Sprite (>= max. Speed)
-static const int BNC  = 9;  // vertikaler Rand (Huepf-Reserve)
+static const int BNC  = 12; // vertikaler Rand (Huepf-/Wipp-Reserve)
 static const int SPRW = VW + 2 * MARG;
 static const int SPRH = VH + 2 * BNC;
 
@@ -84,6 +84,12 @@ static const int SPRH = VH + 2 * BNC;
 // ---------------------------------------------------------------------
 uint16_t C_SKY, C_ROAD, C_LINE, C_SUN, C_WHITE, C_BLACK, C_WINDOW, C_TIRE, C_HUB;
 uint16_t C_RED, C_BLUE, C_GREEN, C_YELLOW, C_DGREY, C_ORANGE, C_CYAN, C_MAROON;
+uint16_t C_SMOKE, C_OFF;
+
+// Animations-Zustand (wird pro Fahrzeug vor dem Zeichnen gesetzt)
+static float    g_wheelAngle = 0;   // Raddrehung
+static bool     g_blink      = false;  // Blaulicht an/aus
+static uint32_t g_phase      = 0;   // millis() fuer Rauch/Arm
 
 // ---------------------------------------------------------------------
 //  Fahrzeuge
@@ -352,9 +358,25 @@ static void audioTask(void *param) {
 //  ZEICHNEN  (alle Fahrzeuge zeigen nach RECHTS; nach links wird der
 //             Sprite gespiegelt)
 // =====================================================================
+// Rad mit rotierenden Speichen (dreht sich beim Fahren)
 static void wheel(int x, int y, int r) {
   spr.fillCircle(x, y, r, C_TIRE);
   spr.fillCircle(x, y, r / 2, C_HUB);
+  for (int s = 0; s < 4; s++) {
+    float a = g_wheelAngle + s * (float)M_PI / 2.0f;
+    int x2 = x + (int)(cosf(a) * (r - 2));
+    int y2 = y + (int)(sinf(a) * (r - 2));
+    spr.drawLine(x, y, x2, y2, C_DGREY);
+  }
+  spr.fillCircle(x, y, 2, C_DGREY);
+}
+
+// kleines, pulsierendes Abgas-/Dampf-Woelkchen bei (x,y)
+static void puff(int x, int y) {
+  int ph = (g_phase / 130) % 3;               // 0,1,2
+  uint16_t col = (ph == 0) ? C_HUB : (ph == 1) ? C_SMOKE : C_WHITE;
+  spr.fillCircle(x,     y - ph * 3,     2 + ph, col);
+  spr.fillCircle(x - 3, y - ph * 3 + 1, 1 + ph, col);
 }
 
 // ---- Feuerwehr (rot, Leiter, Blaulicht) ----
@@ -367,7 +389,7 @@ static void drawFeuerwehr(int ox, int oy) {
     spr.drawLine(ox + 8 + i * 6, bodyTop + 4, ox + 8 + i * 6, bodyTop + 14, C_DGREY);
   spr.drawLine(ox + 8, bodyTop + 4, ox + 40, bodyTop + 4, C_DGREY);
   spr.drawLine(ox + 8, bodyTop + 14, ox + 40, bodyTop + 14, C_DGREY);
-  spr.fillRect(ox + VW - 26, bodyTop - 14, 14, 6, C_BLUE);
+  spr.fillRect(ox + VW - 26, bodyTop - 14, 14, 6, g_blink ? C_BLUE : C_OFF);  // Blaulicht
   wheel(ox + 20, oy + VH - 7, 9);
   wheel(ox + VW - 20, oy + VH - 7, 9);
 }
@@ -379,8 +401,8 @@ static void drawPolizei(int ox, int oy) {
   spr.fillRoundRect(ox + 24, oy + 2, VW - 48, 18, 5, C_WHITE);
   spr.fillRoundRect(ox + 28, oy + 5, VW - 56, 12, 3, C_WINDOW);
   spr.fillRect(ox + 10, top + 2, VW - 20, 8, C_WHITE);
-  spr.fillRect(ox + VW / 2 - 12, oy, 12, 5, C_RED);
-  spr.fillRect(ox + VW / 2,      oy, 12, 5, C_BLUE);
+  spr.fillRect(ox + VW / 2 - 12, oy, 12, 5, g_blink ? C_RED : C_OFF);   // Lichtbalken
+  spr.fillRect(ox + VW / 2,      oy, 12, 5, g_blink ? C_OFF : C_BLUE);  // alternierend
   wheel(ox + 22, oy + VH - 7, 9);
   wheel(ox + VW - 22, oy + VH - 7, 9);
 }
@@ -394,7 +416,7 @@ static void drawKrankenwagen(int ox, int oy) {
   // rotes Kreuz
   spr.fillRect(ox + 22, bodyTop + 8, 16, 5, C_RED);
   spr.fillRect(ox + 27, bodyTop + 3, 5, 15, C_RED);
-  spr.fillRect(ox + VW - 24, bodyTop - 4, 12, 5, C_BLUE);            // Blaulicht
+  spr.fillRect(ox + VW - 24, bodyTop - 4, 12, 5, g_blink ? C_BLUE : C_OFF);  // Blaulicht
   wheel(ox + 22, oy + VH - 7, 9);
   wheel(ox + VW - 22, oy + VH - 7, 9);
 }
@@ -404,7 +426,8 @@ static void drawTraktor(int ox, int oy) {
   spr.fillRoundRect(ox + VW - 40, oy + 16, 36, VH - 26, 3, C_GREEN);
   spr.fillRoundRect(ox + 20, oy + 2, 30, VH - 14, 3, C_GREEN);
   spr.fillRect(ox + 24, oy + 5, 22, 14, C_WINDOW);
-  spr.fillRect(ox + VW - 34, oy + 6, 5, 12, C_DGREY);
+  spr.fillRect(ox + VW - 34, oy + 6, 5, 12, C_DGREY);        // Auspuff
+  puff(ox + VW - 31, oy + 4);                                // Abgas
   spr.fillCircle(ox + VW - 6, oy + 22, 3, C_YELLOW);
   wheel(ox + VW - 18, oy + VH - 10, 8);
   wheel(ox + 24, oy + VH - 6, 15);
@@ -416,12 +439,13 @@ static void drawBagger(int ox, int oy) {
   for (int i = 0; i < 5; i++) spr.fillCircle(ox + 16 + i * 14, oy + VH - 9, 5, C_HUB);
   spr.fillRoundRect(ox + 8, oy + 8, 34, VH - 22, 4, C_YELLOW);
   spr.fillRect(ox + 12, oy + 11, 22, 14, C_WINDOW);
-  spr.drawLine(ox + 40, oy + 16, ox + VW - 20, oy + 4,  C_YELLOW);
+  int dig = (int)(3.0f * sinf(g_phase * 0.004f));            // Arm hebt/senkt sich
+  spr.drawLine(ox + 40, oy + 16, ox + VW - 20, oy + 4,  C_YELLOW);   // Ausleger
   spr.drawLine(ox + 41, oy + 17, ox + VW - 19, oy + 5,  C_YELLOW);
-  spr.drawLine(ox + VW - 20, oy + 4, ox + VW - 6, oy + 22, C_YELLOW);
-  spr.drawLine(ox + VW - 19, oy + 4, ox + VW - 5, oy + 22, C_YELLOW);
-  spr.fillTriangle(ox + VW - 12, oy + 20, ox + VW - 2, oy + 22,
-                   ox + VW - 8,  oy + 30, C_DGREY);
+  spr.drawLine(ox + VW - 20, oy + 4, ox + VW - 6, oy + 22 + dig, C_YELLOW);  // Stiel
+  spr.drawLine(ox + VW - 19, oy + 4, ox + VW - 5, oy + 22 + dig, C_YELLOW);
+  spr.fillTriangle(ox + VW - 12, oy + 20 + dig, ox + VW - 2, oy + 22 + dig,
+                   ox + VW - 8,  oy + 30 + dig, C_DGREY);            // Schaufel
 }
 
 // ---- Muellwagen (orange, grosser Ladebehaelter) ----
@@ -432,6 +456,8 @@ static void drawMuellwagen(int ox, int oy) {
   spr.fillRect(ox + VW - 26, bodyTop + 9, 20, 13, C_WINDOW);
   spr.drawRect(ox + 6, bodyTop + 4, VW - 40, bodyH - 10, C_DGREY);      // Behaelter-Kante
   spr.fillRect(ox + 4, oy + VH - 14, VW - 34, 4, C_DGREY);             // Ladekante hinten
+  spr.fillRect(ox + VW - 34, oy + 3, 4, 7, C_DGREY);                   // Auspuff
+  puff(ox + VW - 32, oy + 2);                                          // Abgas
   wheel(ox + 20, oy + VH - 7, 9);
   wheel(ox + VW - 18, oy + VH - 7, 9);
 }
@@ -453,8 +479,7 @@ static void drawZug(int ox, int oy) {
   spr.fillRoundRect(ox + 6, oy + 2, 30, 20, 3, C_MAROON);              // Fuehrerhaus (links)
   spr.fillRect(ox + 10, oy + 5, 20, 12, C_WINDOW);
   spr.fillRect(ox + VW - 20, oy + 2, 10, 12, C_BLACK);                 // Schornstein (rechts)
-  spr.fillCircle(ox + VW - 15, oy + 2, 5, C_HUB);                      // Dampf
-  spr.fillCircle(ox + VW - 8,  oy - 2, 4, C_HUB);
+  puff(ox + VW - 15, oy + 1);                                          // Dampf
   spr.fillRect(ox + 2, oy + VH - 10, VW - 4, 4, C_DGREY);             // Rahmen
   wheel(ox + 22, oy + VH - 6, 11);
   wheel(ox + VW - 24, oy + VH - 6, 11);
@@ -507,10 +532,14 @@ static void drawScene() {
 // Ein Fahrzeug (flicker-frei) an seine aktuelle Position zeichnen
 static void drawVehicle(Vehicle &v) {
   spr.fillSprite(C_ROAD);
-  int bounce = (millis() < v.bounceUntil)
-                 ? (int)(-7 * fabsf(sinf(millis() * 0.03f)))
+  g_phase      = millis();
+  g_wheelAngle = v.x * 0.15f * v.dir;              // Raddrehung passend zur Fahrt
+  g_blink      = ((g_phase / 220) % 2) == 0;       // Blaulicht-Takt
+  int bounce = (g_phase < v.bounceUntil)
+                 ? (int)(-7 * fabsf(sinf(g_phase * 0.03f)))
                  : 0;
-  drawVehicleArt(v.type, MARG, BNC + bounce);
+  int bob = (int)(1.5f * sinf(v.x * 0.20f));       // sanftes Wippen beim Fahren
+  drawVehicleArt(v.type, MARG, BNC + bounce + bob);
   if (v.dir < 0) mirrorSprite();
   spr.pushSprite((int)v.x - MARG, v.cy - VH / 2 - BNC);
 }
@@ -592,6 +621,8 @@ void setup() {
   C_ORANGE = tft.color565(245, 140, 30);
   C_CYAN   = tft.color565(40, 190, 190);
   C_MAROON = tft.color565(150, 40, 45);
+  C_SMOKE  = tft.color565(200, 200, 205);
+  C_OFF    = tft.color565(60, 60, 68);       // Licht "aus" (dunkle Lampe)
 
   spr.setColorDepth(16);
   spr.createSprite(SPRW, SPRH);
