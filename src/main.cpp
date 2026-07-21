@@ -67,9 +67,11 @@ bool sdReady = false;      // wird in setup() gesetzt
 // ---------------------------------------------------------------------
 static const int SCR_W = 240;
 static const int SCR_H = 320;
-static const int SKY_H = 52;
-static const int N_LANES = 4;
-static const int LANE_H = (SCR_H - SKY_H) / N_LANES;   // 67
+static const int SKY_H    = 50;                         // Himmel (Sonne, Wolken, Voegel)
+static const int LAND_H   = 46;                         // Landschaftsband (Baeume, Haus, Buesche)
+static const int ROAD_TOP = SKY_H + LAND_H;             // Beginn der Strasse (96)
+static const int N_LANES  = 3;
+static const int LANE_H   = (SCR_H - ROAD_TOP) / N_LANES;  // ~74
 
 // Fahrzeug-Box
 static const int VW = 94;   // Breite
@@ -85,6 +87,7 @@ static const int SPRH = VH + 2 * BNC;
 uint16_t C_SKY, C_ROAD, C_LINE, C_SUN, C_WHITE, C_BLACK, C_WINDOW, C_TIRE, C_HUB;
 uint16_t C_RED, C_BLUE, C_GREEN, C_YELLOW, C_DGREY, C_ORANGE, C_CYAN, C_MAROON;
 uint16_t C_SMOKE, C_OFF;
+uint16_t C_GRASS, C_TRUNK, C_ROOF, C_HOUSE, C_DOOR;
 
 // Animations-Zustand (wird pro Fahrzeug vor dem Zeichnen gesetzt)
 static float    g_wheelAngle = 0;   // Raddrehung
@@ -514,16 +517,80 @@ static void mirrorSprite() {
 }
 
 // Statische Szene einmalig zeichnen: Himmel, Sonne, Titel, Strasse, Fahrspuren
+// ---- Dekorative Objekte (statisch, direkt aufs Display) ----
+static void drawSun(int x, int y, int r) {
+  for (int a = 0; a < 360; a += 45) {                 // Sonnenstrahlen
+    float rad = a * 0.0174533f;
+    tft.drawLine(x + cosf(rad) * (r + 2), y + sinf(rad) * (r + 2),
+                 x + cosf(rad) * (r + 8), y + sinf(rad) * (r + 8), C_SUN);
+  }
+  tft.fillCircle(x, y, r, C_SUN);
+}
+
+static void drawCloud(int x, int y) {
+  tft.fillCircle(x,      y,     8, C_WHITE);
+  tft.fillCircle(x + 9,  y + 2, 10, C_WHITE);
+  tft.fillCircle(x + 20, y,     8, C_WHITE);
+  tft.fillRect(x - 8, y + 2, 36, 7, C_WHITE);
+}
+
+static void drawBird(int x, int y) {
+  tft.drawLine(x, y, x + 5, y - 4, C_DGREY);
+  tft.drawLine(x + 5, y - 4, x + 10, y, C_DGREY);
+  tft.drawLine(x, y + 1, x + 5, y - 3, C_DGREY);
+  tft.drawLine(x + 5, y - 3, x + 10, y + 1, C_DGREY);
+}
+
+static void drawTree(int x, int base) {                // base = Boden (Grasoberkante)
+  tft.fillRect(x - 3, base - 14, 6, 14, C_TRUNK);      // Stamm
+  tft.fillCircle(x,      base - 20, 11, C_GREEN);      // Krone
+  tft.fillCircle(x - 8,  base - 15, 8,  C_GREEN);
+  tft.fillCircle(x + 8,  base - 15, 8,  C_GREEN);
+}
+
+static void drawBush(int x, int base) {
+  tft.fillCircle(x,     base - 5, 7, C_GRASS);
+  tft.fillCircle(x + 9, base - 4, 6, C_GRASS);
+  tft.fillCircle(x - 8, base - 4, 6, C_GRASS);
+}
+
+static void drawHouse(int x, int base) {               // base = Boden
+  int w = 34, h = 26;
+  tft.fillRect(x, base - h, w, h, C_HOUSE);            // Wand
+  tft.fillTriangle(x - 3, base - h, x + w + 3, base - h,
+                   x + w / 2, base - h - 16, C_ROOF);  // Dach
+  tft.fillRect(x + w / 2 - 5, base - 12, 10, 12, C_DOOR);   // Tuer
+  tft.fillRect(x + 5, base - h + 5, 8, 8, C_WINDOW);        // Fenster
+  tft.drawRect(x + 5, base - h + 5, 8, 8, C_DOOR);
+}
+
 static void drawScene() {
+  // ---- Himmel ----
   tft.fillRect(0, 0, SCR_W, SKY_H, C_SKY);
-  tft.fillCircle(SCR_W - 26, 22, 16, C_SUN);
+  drawSun(SCR_W - 22, 18, 12);
+  drawCloud(150, 14);
+  drawCloud(66, 34);
+  drawBird(120, 36);
+  drawBird(138, 40);
   tft.setTextColor(C_WHITE, C_SKY);
   tft.setTextDatum(TL_DATUM);
-  tft.drawString("Tipp ein Auto!", 10, 16, 4);
+  tft.drawString("Tipp ein Auto!", 8, 6, 2);
 
-  tft.fillRect(0, SKY_H, SCR_W, SCR_H - SKY_H, C_ROAD);
-  for (int i = 1; i < N_LANES; i++) {
-    int y = SKY_H + i * LANE_H;
+  // ---- Landschaftsband (Gras mit Baeumen, Haus, Bueschen) ----
+  tft.fillRect(0, SKY_H, SCR_W, LAND_H, C_GRASS);
+  int ground = ROAD_TOP;                               // Bodenlinie = Strassenkante
+  drawTree(22, ground);
+  drawBush(58, ground);
+  drawHouse(80, ground);
+  drawTree(140, ground);
+  drawBush(172, ground);
+  drawTree(205, ground);
+  drawBush(228, ground);
+
+  // ---- Strasse ----
+  tft.fillRect(0, ROAD_TOP, SCR_W, SCR_H - ROAD_TOP, C_ROAD);
+  for (int i = 1; i < N_LANES; i++) {                  // gestrichelte Fahrspur-Linien
+    int y = ROAD_TOP + i * LANE_H;
     for (int x = 0; x < SCR_W; x += 22)
       tft.fillRect(x, y - 1, 12, 3, C_LINE);
   }
@@ -623,6 +690,11 @@ void setup() {
   C_MAROON = tft.color565(150, 40, 45);
   C_SMOKE  = tft.color565(200, 200, 205);
   C_OFF    = tft.color565(60, 60, 68);       // Licht "aus" (dunkle Lampe)
+  C_GRASS  = tft.color565(95, 175, 75);
+  C_TRUNK  = tft.color565(120, 80, 45);
+  C_ROOF   = tft.color565(190, 70, 55);
+  C_HOUSE  = tft.color565(235, 220, 185);
+  C_DOOR   = tft.color565(110, 75, 45);
 
   spr.setColorDepth(16);
   spr.createSprite(SPRW, SPRH);
@@ -649,12 +721,12 @@ void setup() {
 
   drawScene();
 
-  // Startaufstellung: vier verschiedene Fahrzeuge, abwechselnde Richtung
-  VType startTypes[N_LANES] = {V_FEUERWEHR, V_POLIZEI, V_TRAKTOR, V_BAGGER};
+  // Startaufstellung: drei verschiedene Fahrzeuge, abwechselnde Richtung
+  VType startTypes[N_LANES] = {V_FEUERWEHR, V_POLIZEI, V_BAGGER};
   for (int i = 0; i < N_LANES; i++) {
     Vehicle &v = vehicles[i];
     v.type  = startTypes[i];
-    v.cy    = SKY_H + i * LANE_H + LANE_H / 2;
+    v.cy    = ROAD_TOP + i * LANE_H + LANE_H / 2;
     v.dir   = (i % 2 == 0) ? 1 : -1;
     v.speed = 1.0f + i * 0.4f;
     v.x     = (v.dir > 0) ? -(VW + i * 50) : (SCR_W + i * 50);

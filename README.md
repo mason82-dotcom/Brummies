@@ -15,6 +15,10 @@ Die Fahrzeuge sind **animiert**: drehende Räder 🛞, blinkende Blaulichter �
 (Traktor/Zug/Müllwagen), ein sich bewegender Baggerarm 🦾 und ein sanftes
 Wippen beim Fahren.
 
+Drumherum eine **bunte Szene**: Himmel mit Sonne ☀️, Wolken und Vögeln, darunter
+ein Landschaftsband mit Bäumen 🌳, einem Haus 🏠 und Büschen, dann die Straße mit
+drei Fahrspuren.
+
 Tippt das Kind ein Fahrzeug an, macht es sein typisches Geräusch (Martinshorn,
 Sirene, Yelp, Motor‑Tuckern, Rückfahr‑Piepen, Hupe, Zug‑Horn …), hüpft kurz und
 die Onboard‑RGB‑LED blinkt in der Fahrzeugfarbe.
